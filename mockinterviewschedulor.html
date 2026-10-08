@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mock Interview Scheduler</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={darkMode:'class'}</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{margin:0;font-family:'Segoe UI',system-ui,Arial,sans-serif}
+body{background:#f5f6fb}.dark body{background:#0f1220}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #6d5df6;outline-offset:2px}
+@keyframes pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}.pop{animation:pop .15s ease-out}
+@media (prefers-reduced-motion:reduce){.pop{animation:none}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useMemo}=React;
+/* ---------- service layer (swap for Firebase later) ---------- */
+const KEY='mis_db_v1';
+const today=(o=0)=>{const d=new Date();d.setDate(d.getDate()+o);return d.toISOString().slice(0,10)};
+const TYPES=['Technical','HR','Behavioral','Coding','System Design','Resume Review','Communication'];
+const SLOTS=['09:00','10:00','11:30','14:00','16:00','18:00'];
+const CATS=[['technicalKnowledge','Technical Knowledge'],['problemSolving','Problem Solving'],['communication','Communication'],['confidence','Confidence'],['codingSkills','Coding Skills'],['timeManagement','Time Management'],['overallPerformance','Overall Performance']];
+const seed=()=>({
+ users:[
+  {id:'c1',name:'Rahul Kumar',email:'candidate@example.com',password:'candidate123',role:'candidate',status:'active',college:'JNTU Hyderabad',targetRole:'SDE',experience:'2 years'},
+  {id:'c2',name:'Priya Sharma',email:'priya@example.com',password:'x',role:'candidate',status:'active',college:'IIIT Hyderabad',targetRole:'Data Analyst',experience:'Fresher'},
+  {id:'c3',name:'Arjun Reddy',email:'arjun@example.com',password:'x',role:'candidate',status:'active',college:'VIT Vellore',targetRole:'Backend Dev',experience:'1 year'},
+  {id:'c4',name:'Sneha Rao',email:'sneha@example.com',password:'x',role:'candidate',status:'active',college:'BITS Hyderabad',targetRole:'Product Analyst',experience:'Fresher'},
+  {id:'m1',name:'John Smith',email:'mentor@example.com',password:'mentor123',role:'mentor',status:'active',company:'Google',jobTitle:'Senior Software Engineer',years:8,skills:['React','Node.js','Java','System Design'],rating:4.8,total:125},
+  {id:'m2',name:'Ananya Sharma',email:'ananya@example.com',password:'x',role:'mentor',status:'active',company:'Microsoft',jobTitle:'Software Engineer',years:5,skills:['Python','DSA','Azure'],rating:4.7,total:80},
+  {id:'m3',name:'David Wilson',email:'david@example.com',password:'x',role:'mentor',status:'active',company:'Amazon',jobTitle:'Engineering Manager',years:12,skills:['System Design','Leadership','Java'],rating:4.9,total:210},
+  {id:'m4',name:'Priya Menon',email:'menon@example.com',password:'x',role:'mentor',status:'active',company:'Deloitte',jobTitle:'HR Manager',years:10,skills:['HR','Communication','Resume'],rating:4.6,total:150},
+  {id:'a1',name:'Admin User',email:'admin@example.com',password:'admin123',role:'admin',status:'active'}],
+ avail:{m1:[1,2,3,4,5],m2:[1,2,3,4,5,6],m3:[2,4,6],m4:[1,3,5]},
+ interviews:[
+  {id:'INT-101',c:'c1',m:'m1',type:'Technical',date:today(1),time:'18:00',dur:60,mode:'Online',link:'https://meet.example.com/interview-101',role:'SDE',focus:'DSA',notes:'',status:'Pending',history:['Booked']},
+  {id:'INT-102',c:'c1',m:'m3',type:'System Design',date:today(3),time:'16:00',dur:45,mode:'Online',link:'https://meet.example.com/interview-102',role:'SDE',focus:'Scalability',notes:'',status:'Confirmed',history:['Booked','Confirmed']},
+  {id:'INT-090',c:'c1',m:'m2',type:'Coding',date:today(-5),time:'10:00',dur:60,mode:'Online',link:'https://meet.example.com/interview-90',role:'SDE',focus:'Arrays',notes:'',status:'Completed',history:['Completed']},
+  {id:'INT-091',c:'c2',m:'m1',type:'Technical',date:today(2),time:'11:30',dur:30,mode:'Online',link:'https://meet.example.com/interview-91',role:'Analyst',focus:'SQL',notes:'',status:'Confirmed',history:['Confirmed']}],
+ feedback:[{id:'F1',interviewId:'INT-090',m:'m2',c:'c1',technicalKnowledge:9,problemSolving:8,communication:8,confidence:9,codingSkills:9,timeManagement:8,overallPerformance:8,strengths:'Strong understanding of data structures.',improvements:'Improve explanation clarity.',detail:'Great session.',recommendation:'Recommended',overall:8.4,at:today(-5)}],
+ notifs:[{id:'N1',u:'c1',title:'Interview confirmed',msg:'Your mock interview with David Wilson is confirmed.',read:false,at:Date.now()},{id:'N2',u:'m1',title:'New interview request',msg:'Rahul Kumar requested a Technical interview.',read:false,at:Date.now()}]
+});
+const load=()=>{try{return JSON.parse(localStorage.getItem(KEY))||seed()}catch(e){return seed()}};
+const wait=(ms=400)=>new Promise(r=>setTimeout(r,ms));
+const fmtT=t=>{const[h,m]=t.split(':').map(Number);return`${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`};
+const fmtD=d=>new Date(d+'T00:00').toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'});
+const initials=n=>n.split(' ').map(x=>x[0]).join('');
+const COLORS={Pending:'bg-amber-100 text-amber-800',Confirmed:'bg-blue-100 text-blue-800','In Progress':'bg-purple-100 text-purple-800',Completed:'bg-green-100 text-green-800',Cancelled:'bg-red-100 text-red-800',Rescheduled:'bg-gray-200 text-gray-800'};
+
+/* ---------- UI primitives ---------- */
+const Btn=({v='primary',className='',...p})=><button {...p} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition active:scale-95 disabled:opacity-40 ${v==='primary'?'bg-indigo-600 text-white hover:bg-indigo-700':v==='danger'?'bg-red-600 text-white hover:bg-red-700':'bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 dark:text-slate-100'} ${className}`}/>;
+const Card=({className='',...p})=><div {...p} className={`bg-white dark:bg-slate-900 dark:text-slate-100 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-4 ${className}`}/>;
+const Badge=({s})=><span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${COLORS[s]||'bg-slate-100'}`}>{s}</span>;
+const Avatar=({name,size=10})=><div style={{width:size*4,height:size*4}} className="rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-white flex items-center justify-center font-semibold shrink-0" aria-label={name}>{initials(name)}</div>;
+const Stat=({label,value})=><Card><div className="text-sm text-slate-500 dark:text-slate-400">{label}</div><div className="text-3xl font-bold mt-1">{value}</div></Card>;
+const Empty=({title,text,action})=><Card className="text-center py-10"><div className="font-semibold">{title}</div><div className="text-sm text-slate-500 my-2">{text}</div>{action}</Card>;
+const Field=({label,children})=><label className="block text-sm font-medium mb-3 dark:text-slate-200">{label}{children}</label>;
+const inp="mt-1 w-full rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 px-3 py-2 text-sm";
+const Modal=({title,onClose,children})=><div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={title}><div className="pop bg-white dark:bg-slate-900 dark:text-slate-100 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-auto p-5"><div className="flex justify-between mb-3"><h3 className="font-bold text-lg">{title}</h3><button aria-label="Close" onClick={onClose} className="text-xl leading-none">×</button></div>{children}</div></div>;
+const Bars=({data,max})=>{const m=max||Math.max(1,...data.map(d=>d[1]));return<div className="space-y-2">{data.map(([l,v])=><div key={l} className="flex items-center gap-2 text-sm"><div className="w-36 truncate">{l}</div><div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded h-3"><div className="bg-indigo-500 h-3 rounded" style={{width:`${v/m*100}%`}}/></div><div className="w-10 text-right">{v}</div></div>)}</div>};
+
+/* ---------- App ---------- */
+function App(){
+ const[db,setDb]=useState(load);
+ const[uid,setUid]=useState(()=>localStorage.getItem('mis_uid')||localStorage.getItem('mis_uid_s'));
+ const[dark,setDark]=useState(()=>localStorage.getItem('mis_dark')==='1');
+ const[page,setPage]=useState('dashboard');
+ const[arg,setArg]=useState(null);
+ const[toast,setToast]=useState(null);
+ const[menu,setMenu]=useState(false);
+ const[q,setQ]=useState('');
+ const[busy,setBusy]=useState(false);
+ useEffect(()=>{localStorage.setItem(KEY,JSON.stringify(db))},[db]);
+ useEffect(()=>{document.documentElement.classList.toggle('dark',dark);localStorage.setItem('mis_dark',dark?'1':'0')},[dark]);
+ const me=db.users.find(u=>u.id===uid);
+ const U=id=>db.users.find(u=>u.id===id)||{name:'Unknown'};
+ const say=(m,err)=>{setToast({m,err});setTimeout(()=>setToast(null),2800)};
+ const upd=fn=>setDb(d=>{const n=JSON.parse(JSON.stringify(d));fn(n);return n});
+ const notify=(n,u,title,msg)=>n.notifs.unshift({id:'N'+Math.random().toString(36).slice(2,8),u,title,msg,read:false,at:Date.now()});
+ const go=(p,a=null)=>{setPage(p);setArg(a);setMenu(false);setQ('')};
+ const taken=(m,date,time,skip)=>db.interviews.some(i=>i.m===m&&i.date===date&&i.time===time&&i.id!==skip&&['Pending','Confirmed','In Progress'].includes(i.status));
+ const slotsFor=(m,date,skip)=>{const dow=new Date(date+'T00:00').getDay();const ok=(db.avail[m]||[]).includes(dow);return SLOTS.map(t=>({t,ok:ok&&!taken(m,date,t,skip)&&new Date(date+'T'+t)>new Date()}))};
+ const login=(email,pw,remember)=>{const u=db.users.find(x=>x.email===email&&x.password===pw);if(!u)return say('Incorrect email or password.',1);if(u.status!=='active')return say('This account is deactivated.',1);localStorage.setItem(remember?'mis_uid':'mis_uid_s',u.id);setUid(u.id);setPage('dashboard')};
+ const logout=()=>{localStorage.removeItem('mis_uid');localStorage.removeItem('mis_uid_s');setUid(null)};
+ const ctx={db,me,U,upd,notify,say,go,slotsFor,taken,busy,setBusy};
+
+ if(!me)return<><Login login={login}/>{toast&&<Toast t={toast}/>}</>;
+ const nav={candidate:[['dashboard','Dashboard'],['mentors','Find a Mentor'],['interviews','My Interviews'],['calendar','Calendar'],['feedback','Feedback'],['notifications','Notifications'],['profile','Profile'],['settings','Settings']],
+  mentor:[['dashboard','Dashboard'],['availability','Availability'],['requests','Interview Requests'],['interviews','Interviews'],['feedback','Feedback'],['notifications','Notifications'],['profile','Profile'],['settings','Settings']],
+  admin:[['dashboard','Dashboard'],['candidates','Candidates'],['mentors','Mentors'],['interviews','Interviews'],['feedback','Feedback'],['reports','Reports'],['settings','Settings']]}[me.role];
+ const unread=db.notifs.filter(n=>n.u===me.id&&!n.read).length;
+ const ok=nav.some(n=>n[0]===page)||['book','mentor','detail'].includes(page);
+ const R=ok?page:'dashboard';
+ const View={dashboard:Dash,mentors:me.role==='admin'?AdminMentors:Mentors,mentor:MentorProfile,book:Book,interviews:Interviews,detail:Detail,calendar:Calendar,feedback:Feedback,notifications:Notifs,profile:Profile,settings:Settings,availability:Availability,requests:Requests,candidates:AdminCands,reports:Reports}[R]||Dash;
+ const results=q.trim()?[...db.users.filter(u=>u.role!=='admin'&&(u.name+u.company+(u.skills||[]).join()).toLowerCase().includes(q.toLowerCase())).map(u=>({k:u.id,l:u.name,s:u.role,f:()=>go(u.role==='mentor'&&me.role==='candidate'?'mentor':'dashboard',u.id)})),...db.interviews.filter(i=>(i.id+i.type+U(i.c).name+U(i.m).name).toLowerCase().includes(q.toLowerCase())).map(i=>({k:i.id,l:`${i.id} · ${i.type}`,s:'interview',f:()=>go('detail',i.id)}))]:[];
+ return<div className="min-h-screen flex dark:text-slate-100">
+  <aside className={`${menu?'fixed':'hidden'} md:flex md:sticky top-0 h-screen z-40 w-60 shrink-0 flex-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-3`}>
+   <div className="font-bold text-indigo-600 text-lg px-2 py-3">MockMate</div>
+   <nav className="flex-1 overflow-auto space-y-1">{nav.map(([k,l])=><button key={k} onClick={()=>go(k)} className={`w-full text-left px-3 py-2 rounded-lg text-sm ${R===k?'bg-indigo-600 text-white':'hover:bg-slate-100 dark:hover:bg-slate-800'}`}>{l}{k==='notifications'&&unread>0&&<span className="ml-2 bg-red-500 text-white text-xs rounded-full px-1.5">{unread}</span>}</button>)}</nav>
+   <button onClick={logout} className="text-left px-3 py-2 rounded-lg text-sm text-red-600 hover:bg-red-50">Logout</button>
+  </aside>
+  <div className="flex-1 min-w-0">
+   <header className="sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-b border-slate-200 dark:border-slate-800 px-3 py-2 flex items-center gap-2">
+    <button className="md:hidden text-xl px-2" aria-label="Open menu" onClick={()=>setMenu(!menu)}>☰</button>
+    <div className="relative flex-1 max-w-md"><input aria-label="Search" value={q} onChange={e=>setQ(e.target.value)} placeholder="Search mentors, interviews…" className={inp+' mt-0'}/>
+     {q&&<div className="absolute left-0 right-0 mt-1 bg-white dark:bg-slate-900 border dark:border-slate-700 rounded-xl shadow-lg p-2 max-h-72 overflow-auto"><button className="text-xs text-slate-500 float-right" onClick={()=>setQ('')}>Clear</button>{results.length?results.map(r=><button key={r.k} onClick={r.f} className="block w-full text-left px-2 py-1.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800 rounded">{r.l} <span className="text-xs text-slate-400">{r.s}</span></button>):<div className="text-sm p-2 text-slate-500">No results found.</div>}</div>}</div>
+    <button aria-label="Toggle dark mode" title="Toggle theme" onClick={()=>setDark(!dark)} className="px-2 text-lg">{dark?'☀️':'🌙'}</button>
+    <button aria-label="Notifications" title="Notifications" onClick={()=>go('notifications')} className="relative px-2 text-lg">🔔{unread>0&&<span className="absolute -top-1 right-0 bg-red-500 text-white text-xs rounded-full px-1">{unread}</span>}</button>
+    <div className="hidden sm:flex items-center gap-2"><Avatar name={me.name} size={8}/><div className="leading-tight text-sm"><div className="font-semibold">{me.name}</div><div className="text-xs text-slate-500 capitalize">{me.role}</div></div></div>
+   </header>
+   <main className="p-4 max-w-6xl mx-auto"><View ctx={ctx} arg={arg}/></main>
+  </div>
+  {toast&&<Toast t={toast}/>}
+ </div>;
+}
+const Toast=({t})=><div role="status" className={`pop fixed bottom-5 right-5 z-[60] px-4 py-3 rounded-xl text-white shadow-lg ${t.err?'bg-red-600':'bg-slate-900'}`}>{t.m}</div>;
+
+function Login({login}){
+ const[e,setE]=useState('');const[p,setP]=useState('');const[r,setR]=useState(true);const[f,setF]=useState(false);
+ return<div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-indigo-50 to-purple-100">
+  <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
+   <h1 className="text-2xl font-bold text-indigo-700">Mock Interview Scheduler</h1><p className="text-sm text-slate-500 mb-4">Practice with mentors from top companies.</p>
+   {f?<div><p className="text-sm mb-2">Enter your email and we'll send reset instructions (prototype).</p><input className={inp} aria-label="Email" placeholder="you@example.com"/><div className="mt-3 flex gap-2"><Btn onClick={()=>{alert('Reset link sent (simulated).');setF(false)}}>Send link</Btn><Btn v="ghost" onClick={()=>setF(false)}>Back</Btn></div></div>:
+   <form onSubmit={x=>{x.preventDefault();login(e,p,r)}}>
+    <Field label="Email"><input type="email" required className={inp} value={e} onChange={x=>setE(x.target.value)}/></Field>
+    <Field label="Password"><input type="password" required className={inp} value={p} onChange={x=>setP(x.target.value)}/></Field>
+    <div className="flex justify-between text-sm mb-3"><label><input type="checkbox" checked={r} onChange={x=>setR(x.target.checked)}/> Remember me</label><button type="button" className="text-indigo-600" onClick={()=>setF(true)}>Forgot password?</button></div>
+    <Btn className="w-full py-2">Log in</Btn></form>}
+   <div className="grid grid-cols-3 gap-2 mt-5">{[['Candidate','candidate@example.com','candidate123'],['Mentor','mentor@example.com','mentor123'],['Admin','admin@example.com','admin123']].map(([l,a,b])=><Btn key={l} v="ghost" onClick={()=>login(a,b,true)}>{l} Demo</Btn>)}</div>
+  </div></div>;
+}
+
+function IntCard({i,ctx,actions}){
+ const{U,go,me}=ctx;const other=me.role==='mentor'?U(i.c):U(i.m);
+ return<Card className="flex flex-col sm:flex-row gap-3 sm:items-center"><Avatar name={other.name}/><div className="flex-1 min-w-0"><div className="font-semibold">{other.name} <Badge s={i.status}/></div><div className="text-sm text-slate-500">{i.type} · {fmtD(i.date)} · {fmtT(i.time)} · {i.dur} min · {i.mode}</div><div className="text-xs text-slate-400">{i.id} · Focus: {i.focus||'—'}</div></div><div className="flex flex-wrap gap-2"><Btn v="ghost" onClick={()=>go('detail',i.id)}>Details</Btn>{actions}</div></Card>;
+}
+const isUp=i=>['Pending','Confirmed','In Progress'].includes(i.status);
+
+function Dash({ctx}){
+ const{db,me,go,U}=ctx;const[load,setLoad]=useState(true);useEffect(()=>{wait(350).then(()=>setLoad(false))},[]);
+ if(load)return<div className="grid grid-cols-2 lg:grid-cols-4 gap-3">{[1,2,3,4].map(k=><div key={k} className="h-24 rounded-2xl bg-slate-200 dark:bg-slate-800 animate-pulse"/>)}</div>;
+ const ints=db.interviews,fb=db.feedback;
+ if(me.role==='admin'){
+  const done=ints.filter(i=>i.status==='Completed').length,canc=ints.filter(i=>i.status==='Cancelled').length;
+  const avg=fb.length?(fb.reduce((a,f)=>a+f.overall,0)/fb.length).toFixed(1):'—';
+  return<div><h2 className="text-xl font-bold mb-3">Admin overview</h2><div className="grid grid-cols-2 lg:grid-cols-3 gap-3"><Stat label="Total candidates" value={db.users.filter(u=>u.role==='candidate').length}/><Stat label="Total mentors" value={db.users.filter(u=>u.role==='mentor').length}/><Stat label="Total interviews" value={ints.length}/><Stat label="Completed" value={done}/><Stat label="Cancelled" value={canc}/><Stat label="Avg feedback score" value={avg}/></div>
+  <Card className="mt-4"><h3 className="font-semibold mb-2">Interviews by status</h3><Bars data={Object.keys(COLORS).map(s=>[s,ints.filter(i=>i.status===s).length])}/></Card></div>;
+ }
+ const mine=me.role==='candidate'?ints.filter(i=>i.c===me.id):ints.filter(i=>i.m===me.id);
+ const up=mine.filter(isUp).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+ const myfb=fb.filter(f=>me.role==='candidate'?f.c===me.id:f.m===me.id);
+ const avg=myfb.length?(myfb.reduce((a,f)=>a+f.overall,0)/myfb.length).toFixed(1):'—';
+ return<div><h2 className="text-xl font-bold mb-3">Welcome, {me.name.split(' ')[0]}</h2>
+ <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+  <Stat label="Upcoming" value={up.length}/><Stat label="Completed" value={mine.filter(i=>i.status==='Completed').length}/>
+  <Stat label={me.role==='candidate'?'Average score':'Pending requests'} value={me.role==='candidate'?avg+'/10':mine.filter(i=>i.status==='Pending').length}/>
+  <Stat label={me.role==='candidate'?'Available mentors':'Today'} value={me.role==='candidate'?db.users.filter(u=>u.role==='mentor'&&u.status==='active').length:mine.filter(i=>i.date===today()&&isUp(i)).length}/></div>
+ <h3 className="font-semibold mb-2">Upcoming interviews</h3>
+ <div className="space-y-3">{up.length?up.map(i=><IntCard key={i.id} i={i} ctx={ctx} actions={<IntActions i={i} ctx={ctx}/>}/>):<Empty title="No upcoming interviews" text="You don't have any upcoming mock interviews." action={me.role==='candidate'&&<Btn onClick={()=>go('mentors')}>Find a Mentor</Btn>}/>}</div></div>;
+}
+
+function IntActions({i,ctx}){
+ const{me,go,upd,notify,say,U}=ctx;const[m,setM]=useState(null);
+ const setStatus=(st,msg)=>{upd(d=>{const x=d.interviews.find(y=>y.id===i.id);x.status=st;x.history.push(st);const to=me.role==='mentor'?i.c:i.m;notify(d,to,'Interview '+st.toLowerCase(),msg)});};
+ const cancel=(reason)=>{upd(d=>{const x=d.interviews.find(y=>y.id===i.id);x.status='Cancelled';x.reason=reason;x.history.push('Cancelled: '+reason);notify(d,me.role==='mentor'?i.c:i.m,'Interview cancelled',`${me.name} cancelled ${i.id}. Reason: ${reason}`)});say('Interview cancelled.');setM(null)};
+ return<>
+  {me.role==='mentor'&&i.status==='Confirmed'&&<Btn onClick={()=>{setStatus('In Progress','Your interview has started.');say('Interview started.')}}>Start</Btn>}
+  {me.role==='mentor'&&i.status==='In Progress'&&<Btn onClick={()=>{setStatus('Completed','Interview completed. Feedback is on the way.');go('feedback',i.id)}}>Complete</Btn>}
+  {me.role==='candidate'&&['Confirmed','In Progress'].includes(i.status)&&i.mode==='Online'&&<Btn onClick={()=>window.open(i.link,'_blank')}>Join</Btn>}
+  {['Pending','Confirmed'].includes(i.status)&&me.role!=='admin'&&<Btn v="ghost" onClick={()=>go('book',{resched:i.id,m:i.m})}>Reschedule</Btn>}
+  {['Pending','Confirmed'].includes(i.status)&&me.role!=='admin'&&<Btn v="danger" onClick={()=>setM(1)}>Cancel</Btn>}
+  {m&&<CancelModal onClose={()=>setM(null)} onOk={cancel}/>}
+ </>;
+}
+function CancelModal({onClose,onOk}){
+ const[r,setR]=useState('Personal reason');const[c,setC]=useState('');
+ return<Modal title="Cancel this interview?" onClose={onClose}><p className="text-sm mb-3">Are you sure you want to cancel this interview?</p>
+  <Field label="Reason"><select className={inp} value={r} onChange={e=>setR(e.target.value)}>{['Personal reason','Schedule conflict','Technical issue','Other'].map(x=><option key={x}>{x}</option>)}</select></Field>
+  {r==='Other'&&<Field label="Tell us more"><input className={inp} value={c} onChange={e=>setC(e.target.value)}/></Field>}
+  <div className="flex gap-2 justify-end"><Btn v="ghost" onClick={onClose}>Keep Interview</Btn><Btn v="danger" onClick={()=>onOk(r==='Other'&&c?c:r)}>Cancel Interview</Btn></div></Modal>;
+}
+
+function Mentors({ctx}){
+ const{db,go}=ctx;const[s,setS]=useState('');const[sk,setSk]=useState('');const[minR,setMinR]=useState(0);const[load,setLoad]=useState(false);
+ useEffect(()=>{setLoad(true);const t=setTimeout(()=>setLoad(false),250);return()=>clearTimeout(t)},[s,sk,minR]);
+ const list=db.users.filter(u=>u.role==='mentor'&&u.status==='active'&&(u.name+u.company+u.jobTitle+u.skills.join()).toLowerCase().includes(s.toLowerCase())&&(!sk||u.skills.includes(sk))&&u.rating>=minR);
+ const skills=[...new Set(db.users.flatMap(u=>u.skills||[]))];
+ return<div><h2 className="text-xl font-bold mb-3">Find a mentor</h2>
+ <div className="grid sm:grid-cols-3 gap-2 mb-4"><input aria-label="Search mentors" className={inp+' mt-0'} placeholder="Name, company, skill, role" value={s} onChange={e=>setS(e.target.value)}/>
+  <select aria-label="Skill" className={inp+' mt-0'} value={sk} onChange={e=>setSk(e.target.value)}><option value="">All skills</option>{skills.map(x=><option key={x}>{x}</option>)}</select>
+  <select aria-label="Rating" className={inp+' mt-0'} value={minR} onChange={e=>setMinR(+e.target.value)}><option value={0}>Any rating</option><option value={4.7}>4.7+</option><option value={4.8}>4.8+</option></select></div>
+ {load?<div className="h-32 rounded-2xl bg-slate-200 dark:bg-slate-800 animate-pulse"/>:list.length?<div className="grid md:grid-cols-2 gap-3">{list.map(m=><Card key={m.id}><div className="flex gap-3"><Avatar name={m.name} size={12}/><div><div className="font-semibold">{m.name}</div><div className="text-sm text-slate-500">{m.jobTitle}, {m.company}</div><div className="text-xs mt-1">{m.years} yrs · ⭐ {m.rating} · {m.total} interviews</div></div></div>
+  <div className="flex flex-wrap gap-1 my-3">{m.skills.map(k=><span key={k} className="text-xs bg-indigo-50 text-indigo-700 rounded px-2 py-0.5">{k}</span>)}</div>
+  <div className="flex gap-2"><Btn v="ghost" onClick={()=>go('mentor',m.id)}>View Profile</Btn><Btn onClick={()=>go('book',{m:m.id})}>Book Interview</Btn></div></Card>)}</div>:<Empty title="No mentors found" text="Try a different search or filter."/>}</div>;
+}
+function MentorProfile({ctx,arg}){
+ const{db,go}=ctx;const m=db.users.find(u=>u.id===arg);if(!m)return<Empty title="Mentor not found" text="Go back to the mentor list." action={<Btn onClick={()=>go('mentors')}>Find a Mentor</Btn>}/>;
+ const days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+ return<Card><div className="flex gap-4 items-center"><Avatar name={m.name} size={16}/><div><h2 className="text-xl font-bold">{m.name}</h2><div className="text-slate-500">{m.jobTitle}, {m.company}</div><div className="text-sm">⭐ {m.rating} · {m.total} interviews · {m.years} years</div></div></div>
+ <p className="my-3 text-sm">{m.name} has helped hundreds of candidates prepare for interviews at product and service companies. Languages: English, Hindi.</p>
+ <div className="text-sm mb-2"><b>Skills:</b> {m.skills.join(', ')}</div><div className="text-sm mb-4"><b>Available days:</b> {(db.avail[m.id]||[]).map(d=>days[d]).join(', ')||'None'}</div>
+ <Btn onClick={()=>go('book',{m:m.id})}>Book Interview</Btn></Card>;
+}
+
+function Book({ctx,arg}){
+ const{db,me,U,upd,notify,say,go,slotsFor,taken,setBusy,busy}=ctx;
+ const re=arg?.resched?db.interviews.find(i=>i.id===arg.resched):null;
+ const[m,setM]=useState(arg?.m||'');const[type,setType]=useState(re?.type||'');const[date,setDate]=useState('');const[time,setTime]=useState('');const[dur,setDur]=useState(re?.dur||60);const[mode,setMode]=useState(re?.mode||'Online');
+ const[role,setRole]=useState(re?.role||me.targetRole||'');const[focus,setFocus]=useState(re?.focus||'');const[notes,setNotes]=useState('');const[err,setErr]=useState('');const[confirm,setConfirm]=useState(false);
+ const dates=useMemo(()=>[...Array(14)].map((_,k)=>today(k)),[]);
+ const slots=m&&date?slotsFor(m,date,re?.id):[];
+ const dayOk=d=>m&&slotsFor(m,d,re?.id).some(s=>s.ok);
+ const validate=()=>{if(!m)return'Please select a mentor.';if(!type)return'Please select an interview type.';if(!date||isNaN(new Date(date)))return'Please select a valid date.';if(!time)return'Please select a time slot.';if(new Date(date+'T'+time)<=new Date())return'You cannot book a time in the past.';if(taken(m,date,time,re?.id))return'This slot has already been booked. Please select another time.';
+  if(db.interviews.some(i=>i.c===me.id&&i.id!==re?.id&&i.date===date&&i.time===time&&isUp(i)))return'You already have an interview at this time.';if(!role.trim()||!focus.trim())return'Please complete all required fields.';return''};
+ const review=()=>{const e=validate();setErr(e);if(!e)setConfirm(true)};
+ const submit=async()=>{setBusy(true);await wait(600);const e=validate();if(e){setErr(e);setBusy(false);setConfirm(false);return}
+  if(re){upd(d=>{const x=d.interviews.find(y=>y.id===re.id);x.history.push(`Rescheduled from ${x.date} ${x.time}`);x.date=date;x.time=time;x.dur=dur;x.status='Pending';x.history.push('Pending');notify(d,x.m,'Interview rescheduled',`${me.name} moved ${x.id} to ${fmtD(date)} ${fmtT(time)}.`);notify(d,x.c,'Interview rescheduled',`Your interview is now ${fmtD(date)} at ${fmtT(time)}.`)});say('Interview rescheduled successfully!')}
+  else{const id='INT-'+(100+db.interviews.length+Math.floor(Math.random()*900));upd(d=>{d.interviews.push({id,c:me.id,m,type,date,time,dur,mode,link:mode==='Online'?`https://meet.example.com/interview-${id.slice(4)}`:'In person',role,focus,notes,status:'Pending',history:['Booked']});notify(d,m,'New interview request',`${me.name} requested a ${type} interview on ${fmtD(date)} at ${fmtT(time)}.`);notify(d,me.id,'Interview booked',`Your request with ${U(m).name} is awaiting confirmation.`)});say('Interview booked successfully!')}
+  setBusy(false);setConfirm(false);go('interviews')};
+ return<div className="max-w-2xl"><h2 className="text-xl font-bold mb-3">{re?'Reschedule interview':'Book an interview'}</h2>
+ <Card>
+  <Field label="Mentor"><select className={inp} value={m} disabled={!!re} onChange={e=>{setM(e.target.value);setDate('');setTime('')}}><option value="">Select mentor</option>{db.users.filter(u=>u.role==='mentor'&&u.status==='active').map(u=><option key={u.id} value={u.id}>{u.name} — {u.company}</option>)}</select></Field>
+  <Field label="1. Interview type"><select className={inp} value={type} onChange={e=>setType(e.target.value)}><option value="">Select type</option>{TYPES.map(t=><option key={t}>{t}</option>)}</select></Field>
+  <div className="text-sm font-medium mb-1">2. Date</div><div className="grid grid-cols-4 sm:grid-cols-7 gap-1 mb-3">{dates.map(d=><button key={d} disabled={!dayOk(d)} onClick={()=>{setDate(d);setTime('')}} className={`rounded-lg py-1.5 text-xs border ${date===d?'bg-indigo-600 text-white':'dark:border-slate-600'} disabled:opacity-30 disabled:line-through`}>{new Date(d+'T00:00').toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'})}</button>)}</div>
+  <div className="text-sm font-medium mb-1">3. Time</div>{date?<div className="grid grid-cols-3 sm:grid-cols-6 gap-1 mb-3">{slots.map(s=><button key={s.t} disabled={!s.ok} onClick={()=>setTime(s.t)} className={`rounded-lg py-1.5 text-xs border ${time===s.t?'bg-indigo-600 text-white':'dark:border-slate-600'} disabled:opacity-30`}>{fmtT(s.t)}</button>)}</div>:<div className="text-xs text-slate-500 mb-3">Choose a mentor and date first.</div>}
+  <div className="grid grid-cols-2 gap-3"><Field label="4. Duration"><select className={inp} value={dur} onChange={e=>setDur(+e.target.value)}>{[30,45,60].map(x=><option key={x} value={x}>{x} minutes</option>)}</select></Field>
+  <Field label="5. Mode"><select className={inp} value={mode} onChange={e=>setMode(e.target.value)}><option>Online</option><option>In-person</option></select></Field></div>
+  <Field label="Target job role *"><input className={inp} value={role} onChange={e=>setRole(e.target.value)}/></Field>
+  <Field label="Interview focus *"><input className={inp} value={focus} onChange={e=>setFocus(e.target.value)} placeholder="e.g. Data Structures and Algorithms"/></Field>
+  <Field label="Additional notes"><textarea className={inp} rows={2} value={notes} onChange={e=>setNotes(e.target.value)}/></Field>
+  {err&&<div role="alert" className="text-sm text-red-600 mb-2">{err}</div>}
+  <Btn onClick={review}>Review booking</Btn></Card>
+ {confirm&&<Modal title={re?'Are you sure you want to reschedule this interview?':'Booking summary'} onClose={()=>setConfirm(false)}>
+  <dl className="text-sm space-y-1 mb-4"><div><b>Mentor:</b> {U(m).name}</div><div><b>Interview:</b> {type}</div><div><b>Date:</b> {fmtD(date)}</div><div><b>Time:</b> {fmtT(time)}</div><div><b>Duration:</b> {dur} minutes</div><div><b>Mode:</b> {mode}</div><div><b>Focus:</b> {focus}</div></dl>
+  <div className="flex justify-end gap-2"><Btn v="ghost" onClick={()=>setConfirm(false)}>Back</Btn><Btn disabled={busy} onClick={submit}>{busy?'Saving…':re?'Confirm Reschedule':'Confirm Booking'}</Btn></div></Modal>}</div>;
+}
+
+function Interviews({ctx}){
+ const{db,me,U}=ctx;const tabs=['Upcoming','Pending','Completed','Cancelled','Rescheduled'];const[t,setT]=useState('Upcoming');
+ const mine=db.interviews.filter(i=>me.role==='admin'||(me.role==='candidate'?i.c===me.id:i.m===me.id));
+ const f=i=>t==='Upcoming'?['Confirmed','In Progress'].includes(i.status):i.status===t||(t==='Rescheduled'&&i.history.some(h=>h.startsWith('Rescheduled')));
+ const list=mine.filter(f);
+ return<div><h2 className="text-xl font-bold mb-3">{me.role==='admin'?'All interviews':'My interviews'}</h2>
+ <div className="flex gap-1 mb-3 overflow-auto" role="tablist">{tabs.map(x=><button role="tab" aria-selected={t===x} key={x} onClick={()=>setT(x)} className={`px-3 py-1.5 rounded-lg text-sm whitespace-nowrap ${t===x?'bg-indigo-600 text-white':'bg-white dark:bg-slate-800'}`}>{x} ({mine.filter(i=>{const s=t;return true&&(x==='Upcoming'?['Confirmed','In Progress'].includes(i.status):i.status===x||(x==='Rescheduled'&&i.history.some(h=>h.startsWith('Rescheduled'))))}).length})</button>)}</div>
+ <div className="space-y-3">{list.length?list.map(i=><IntCard key={i.id} i={i} ctx={ctx} actions={me.role!=='admin'&&<IntActions i={i} ctx={ctx}/>}/>):<Empty title={`No ${t.toLowerCase()} interviews`} text="Nothing to show here yet."/>}</div></div>;
+}
+function Detail({ctx,arg}){
+ const{db,U,go,me}=ctx;const i=db.interviews.find(x=>x.id===arg);if(!i)return<Empty title="Interview not found" text="It may have been removed."/>;
+ const fb=db.feedback.find(f=>f.interviewId===i.id);
+ return<Card className="max-w-2xl"><div className="flex justify-between mb-3"><h2 className="text-xl font-bold">{i.id}</h2><Badge s={i.status}/></div>
+ <dl className="grid sm:grid-cols-2 gap-2 text-sm">{[['Candidate',U(i.c).name],['Mentor',U(i.m).name],['Type',i.type],['Date',fmtD(i.date)],['Time',fmtT(i.time)],['Duration',i.dur+' min'],['Mode',i.mode],['Meeting link',i.link],['Target role',i.role],['Focus',i.focus],['Notes',i.notes||'—'],['Feedback',fb?'Submitted':'Not submitted']].map(([k,v])=><div key={k}><dt className="text-slate-500 text-xs">{k}</dt><dd className="break-all">{v}</dd></div>)}</dl>
+ {i.reason&&<div className="text-sm mt-2"><b>Cancellation reason:</b> {i.reason}</div>}
+ <div className="mt-3 text-xs text-slate-500"><b>Activity:</b> {i.history.join(' → ')}</div>
+ <div className="flex flex-wrap gap-2 mt-4"><IntActions i={i} ctx={ctx}/>{me.role==='mentor'&&i.status==='Completed'&&!fb&&<Btn onClick={()=>go('feedback',i.id)}>Submit feedback</Btn>}</div></Card>;
+}
+
+function Requests({ctx}){
+ const{db,me,U,upd,notify,say}=ctx;const[rej,setRej]=useState(null);const[why,setWhy]=useState('');
+ const list=db.interviews.filter(i=>i.m===me.id&&i.status==='Pending');
+ const accept=i=>{upd(d=>{const x=d.interviews.find(y=>y.id===i.id);x.status='Confirmed';x.history.push('Confirmed');notify(d,i.c,'Booking accepted',`Your mock interview with ${me.name} is confirmed for ${fmtD(i.date)} at ${fmtT(i.time)}.`)});say('Request accepted.')};
+ const reject=()=>{if(!why.trim())return say('Please provide a rejection reason.',1);upd(d=>{const x=d.interviews.find(y=>y.id===rej.id);x.status='Cancelled';x.reason='Rejected: '+why;x.history.push('Rejected');notify(d,rej.c,'Booking rejected',`${me.name} could not accept your request. Reason: ${why}`)});say('Request rejected.');setRej(null);setWhy('')};
+ return<div><h2 className="text-xl font-bold mb-3">Interview requests</h2><div className="space-y-3">{list.length?list.map(i=><Card key={i.id}><div className="font-semibold">{U(i.c).name} · {i.type}</div><div className="text-sm text-slate-500">{fmtD(i.date)} · {fmtT(i.time)} · {U(i.c).experience} · Focus: {i.focus}</div>{i.notes&&<div className="text-sm mt-1">“{i.notes}”</div>}<div className="flex gap-2 mt-3"><Btn onClick={()=>accept(i)}>Accept</Btn><Btn v="danger" onClick={()=>setRej(i)}>Reject</Btn></div></Card>):<Empty title="No pending requests" text="New booking requests will appear here."/>}</div>
+ {rej&&<Modal title="Reject this request?" onClose={()=>setRej(null)}><Field label="Reason (required)"><textarea className={inp} rows={3} value={why} onChange={e=>setWhy(e.target.value)}/></Field><div className="flex justify-end gap-2"><Btn v="ghost" onClick={()=>setRej(null)}>Keep request</Btn><Btn v="danger" onClick={reject}>Reject request</Btn></div></Modal>}</div>;
+}
+
+function Availability({ctx}){
+ const{db,me,upd,say,setBusy,busy}=ctx;const days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+ const[on,setOn]=useState(db.avail[me.id]||[]);
+ const toggle=d=>setOn(on.includes(d)?on.filter(x=>x!==d):[...on,d]);
+ const save=async()=>{setBusy(true);await wait(500);upd(d=>{d.avail[me.id]=on});setBusy(false);say('Availability updated.')};
+ return<div className="max-w-xl"><h2 className="text-xl font-bold mb-3">Availability</h2><Card><p className="text-sm text-slate-500 mb-3">Candidates can book you on the days you switch on, using the standard slots (9:00 AM – 6:00 PM).</p>
+ {days.map((n,d)=><div key={d} className="flex justify-between items-center py-2 border-b dark:border-slate-800 text-sm"><span>{n}</span><button role="switch" aria-checked={on.includes(d)} onClick={()=>toggle(d)} className={`px-3 py-1 rounded-full text-xs ${on.includes(d)?'bg-green-100 text-green-800':'bg-slate-200 text-slate-600'}`}>{on.includes(d)?'Available':'Unavailable'}</button></div>)}
+ <Btn className="mt-4" disabled={busy} onClick={save}>{busy?'Saving…':'Save Availability'}</Btn></Card></div>;
+}
+
+function Rating({v,set}){return<div className="flex flex-wrap gap-1" role="radiogroup">{[1,2,3,4,5,6,7,8,9,10].map(n=><button type="button" role="radio" aria-checked={v===n} key={n} onClick={()=>set(n)} className={`w-8 h-8 rounded-lg text-sm ${v>=n?'bg-indigo-600 text-white':'bg-slate-100 dark:bg-slate-800'}`}>{n}</button>)}</div>}
+
+function Feedback({ctx,arg}){
+ const{db,me,U,upd,notify,say,go,setBusy,busy}=ctx;
+ const[sel,setSel]=useState(arg);
+ const[sc,setSc]=useState({});const[st,setSt]=useState('');const[im,setIm]=useState('');const[de,setDe]=useState('');const[rec,setRec]=useState('Recommended');
+ if(me.role==='mentor'&&sel){
+  const i=db.interviews.find(x=>x.id===sel);
+  if(i&&db.feedback.some(f=>f.interviewId===i.id)){return<Empty title="Feedback already submitted" text="Each interview can only have one feedback form." action={<Btn onClick={()=>setSel(null)}>Back</Btn>}/>}
+  if(i){const vals=CATS.map(c=>sc[c[0]]).filter(Boolean);const avg=vals.length?(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1):'—';
+   const submit=async()=>{if(CATS.some(c=>!sc[c[0]]))return say('Please complete all required fields.',1);if(db.feedback.some(f=>f.interviewId===i.id))return say('Feedback was already submitted.',1);setBusy(true);await wait(600);
+    upd(d=>{d.feedback.push({id:'F'+Date.now(),interviewId:i.id,m:me.id,c:i.c,...sc,strengths:st,improvements:im,detail:de,recommendation:rec,overall:+avg,at:today()});notify(d,i.c,'Feedback submitted',`${me.name} shared feedback for ${i.id}. Overall score: ${avg}/10.`)});setBusy(false);say('Feedback submitted successfully!');setSel(null)};
+   return<Card className="max-w-2xl"><h2 className="text-xl font-bold">Feedback for {U(i.c).name}</h2><div className="text-sm text-slate-500 mb-3">{i.type} · {fmtD(i.date)}</div>
+   {CATS.map(([k,l])=><div key={k} className="mb-3"><div className="text-sm font-medium mb-1">{l}</div><Rating v={sc[k]||0} set={n=>setSc({...sc,[k]:n})}/></div>)}
+   <div className="font-semibold mb-3">Overall score: {avg}/10</div>
+   <Field label="Strengths"><textarea className={inp} rows={2} value={st} onChange={e=>setSt(e.target.value)}/></Field>
+   <Field label="Areas for improvement"><textarea className={inp} rows={2} value={im} onChange={e=>setIm(e.target.value)}/></Field>
+   <Field label="Detailed feedback"><textarea className={inp} rows={3} value={de} onChange={e=>setDe(e.target.value)}/></Field>
+   <Field label="Recommendation"><select className={inp} value={rec} onChange={e=>setRec(e.target.value)}>{['Strongly Recommended','Recommended','Needs Improvement','Not Recommended'].map(x=><option key={x}>{x}</option>)}</select></Field>
+   <Btn disabled={busy} onClick={submit}>{busy?'Submitting…':'Submit Feedback'}</Btn></Card>}
+ }
+ const list=db.feedback.filter(f=>me.role==='admin'||(me.role==='candidate'?f.c===me.id:f.m===me.id));
+ const pend=me.role==='mentor'?db.interviews.filter(i=>i.m===me.id&&i.status==='Completed'&&!db.feedback.some(f=>f.interviewId===i.id)):[];
+ return<div><h2 className="text-xl font-bold mb-3">Feedback</h2>
+ {pend.map(i=><Card key={i.id} className="mb-3 flex justify-between items-center"><span className="text-sm">Feedback due: {U(i.c).name} · {i.type}</span><Btn onClick={()=>setSel(i.id)}>Write feedback</Btn></Card>)}
+ {list.length?<div className="space-y-3">{list.map(f=><Card key={f.id}><div className="flex justify-between"><div className="font-semibold">{me.role==='mentor'?U(f.c).name:U(f.m).name} · {fmtD(f.at)}</div><div className="text-2xl font-bold text-indigo-600">{f.overall}/10</div></div>
+  <div className="my-3"><Bars max={10} data={CATS.map(([k,l])=>[l,f[k]])}/></div>
+  <div className="text-sm"><b>Strengths:</b> {f.strengths||'—'}</div><div className="text-sm"><b>Improve:</b> {f.improvements||'—'}</div><div className="text-sm"><b>Recommendation:</b> {f.recommendation}</div></Card>)}</div>:
+  !pend.length&&<Empty title="No feedback available yet" text="Complete an interview to receive mentor feedback." action={me.role==='candidate'&&<Btn onClick={()=>go('mentors')}>Find a Mentor</Btn>}/>}</div>;
+}
+
+function Calendar({ctx}){
+ const{db,me,go}=ctx;const[mo,setMo]=useState(()=>{const d=new Date();return new Date(d.getFullYear(),d.getMonth(),1)});const[sel,setSel]=useState(null);
+ const first=mo.getDay(),n=new Date(mo.getFullYear(),mo.getMonth()+1,0).getDate();
+ const iso=d=>`${mo.getFullYear()}-${String(mo.getMonth()+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+ const mine=db.interviews.filter(i=>i.c===me.id);
+ const dot={Pending:'bg-amber-500',Confirmed:'bg-blue-500','In Progress':'bg-purple-500',Completed:'bg-green-500',Cancelled:'bg-red-500',Rescheduled:'bg-gray-500'};
+ return<div><div className="flex justify-between items-center mb-3"><h2 className="text-xl font-bold">{mo.toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</h2><div className="flex gap-2"><Btn v="ghost" aria-label="Previous month" onClick={()=>setMo(new Date(mo.getFullYear(),mo.getMonth()-1,1))}>‹</Btn><Btn v="ghost" aria-label="Next month" onClick={()=>setMo(new Date(mo.getFullYear(),mo.getMonth()+1,1))}>›</Btn><Btn onClick={()=>go('mentors')}>Book New Interview</Btn></div></div>
+ <Card className="p-2"><div className="grid grid-cols-7 text-center text-xs text-slate-500">{['S','M','T','W','T','F','S'].map((d,k)=><div key={k}>{d}</div>)}</div>
+ <div className="grid grid-cols-7 gap-1">{[...Array(first)].map((_,k)=><div key={'e'+k}/>)}{[...Array(n)].map((_,k)=>{const d=k+1,its=mine.filter(i=>i.date===iso(d));return<button key={d} onClick={()=>its.length&&setSel(its)} className="min-h-[3.5rem] border dark:border-slate-700 rounded-lg p-1 text-xs text-left hover:bg-slate-50 dark:hover:bg-slate-800"><div>{d}</div><div className="flex gap-0.5 flex-wrap">{its.map(i=><span key={i.id} className={`w-2 h-2 rounded-full ${dot[i.status]}`}/>)}</div></button>})}</div></Card>
+ {sel&&<Modal title="Interviews" onClose={()=>setSel(null)}>{sel.map(i=><div key={i.id} className="py-2 border-b dark:border-slate-700 text-sm flex justify-between"><span>{i.type} · {fmtT(i.time)} <Badge s={i.status}/></span><Btn v="ghost" onClick={()=>go('detail',i.id)}>Details</Btn></div>)}</Modal>}</div>;
+}
+
+function Notifs({ctx}){
+ const{db,me,upd}=ctx;const list=db.notifs.filter(n=>n.u===me.id);
+ return<div className="max-w-2xl"><div className="flex justify-between mb-3"><h2 className="text-xl font-bold">Notifications</h2><Btn v="ghost" onClick={()=>upd(d=>d.notifs.forEach(n=>{if(n.u===me.id)n.read=true}))}>Mark all as read</Btn></div>
+ <div className="space-y-2">{list.length?list.map(n=><Card key={n.id} className={n.read?'opacity-70':'border-l-4 border-l-indigo-500'}><div className="font-semibold text-sm">{n.title}</div><div className="text-sm">{n.msg}</div><div className="flex gap-3 mt-1 text-xs"><span className="text-slate-400">{new Date(n.at).toLocaleString('en-IN')}</span>{!n.read&&<button className="text-indigo-600" onClick={()=>upd(d=>{d.notifs.find(x=>x.id===n.id).read=true})}>Mark as read</button>}<button className="text-red-600" onClick={()=>upd(d=>{d.notifs=d.notifs.filter(x=>x.id!==n.id)})}>Delete</button></div></Card>):<Empty title="You're all caught up" text="New notifications will show up here."/>}</div></div>;
+}
+
+function Profile({ctx}){
+ const{me,upd,say}=ctx;const[f,setF]=useState({...me});const[ed,setEd]=useState(false);
+ const save=()=>{if(!f.name.trim())return say('Please complete all required fields.',1);upd(d=>{Object.assign(d.users.find(u=>u.id===me.id),{name:f.name,college:f.college,targetRole:f.targetRole,experience:f.experience,company:f.company,jobTitle:f.jobTitle})});setEd(false);say('Profile updated successfully.')};
+ const fields=me.role==='candidate'?[['name','Full name'],['college','College'],['targetRole','Target role'],['experience','Experience']]:[['name','Name'],['company','Company'],['jobTitle','Job title']];
+ return<Card className="max-w-xl"><div className="flex items-center gap-3 mb-4"><Avatar name={me.name} size={14}/><div><div className="font-bold">{me.name}</div><div className="text-sm text-slate-500">{me.email}</div></div></div>
+ {fields.map(([k,l])=><Field key={k} label={l}><input className={inp} disabled={!ed} value={f[k]||''} onChange={e=>setF({...f,[k]:e.target.value})}/></Field>)}
+ {ed?<Btn onClick={save}>Save Changes</Btn>:<Btn onClick={()=>setEd(true)}>Edit Profile</Btn>}</Card>;
+}
+function Settings({ctx}){
+ const{me,upd,say}=ctx;const[n,setN]=useState(me.name);const[e,setE]=useState(me.email);const[pw,setPw]=useState('');const[vis,setVis]=useState(true);const[rem,setRem]=useState(true);
+ const save=()=>{if(!n.trim()||!/\S+@\S+\.\S+/.test(e))return say('Please enter a valid name and email.',1);if(pw&&pw.length<6)return say('Password must be at least 6 characters.',1);upd(d=>{const u=d.users.find(x=>x.id===me.id);u.name=n;u.email=e;if(pw)u.password=pw});setPw('');say('Settings saved.')};
+ return<Card className="max-w-xl"><h2 className="font-bold text-lg mb-3">Settings</h2><Field label="Name"><input className={inp} value={n} onChange={x=>setN(x.target.value)}/></Field><Field label="Email"><input className={inp} value={e} onChange={x=>setE(x.target.value)}/></Field><Field label="New password"><input type="password" className={inp} value={pw} onChange={x=>setPw(x.target.value)} placeholder="Leave blank to keep current"/></Field>
+ <label className="block text-sm mb-2"><input type="checkbox" checked={rem} onChange={x=>setRem(x.target.checked)}/> Interview reminders</label><label className="block text-sm mb-4"><input type="checkbox" checked={vis} onChange={x=>setVis(x.target.checked)}/> Profile visible to others</label><Btn onClick={save}>Save settings</Btn><p className="text-xs text-slate-500 mt-3">Use the 🌙 button in the top bar to switch themes.</p></Card>;
+}
+
+function AdminCands({ctx}){
+ const{db,upd,say}=ctx;const[s,setS]=useState('');const[d,setD]=useState(null);
+ const list=db.users.filter(u=>u.role==='candidate'&&(u.name+u.email+(u.college||'')).toLowerCase().includes(s.toLowerCase()));
+ const avg=id=>{const f=db.feedback.filter(x=>x.c===id);return f.length?(f.reduce((a,x)=>a+x.overall,0)/f.length).toFixed(1):'—'};
+ return<div><h2 className="text-xl font-bold mb-3">Candidates</h2><input aria-label="Search candidates" className={inp+' mb-3 max-w-sm'} placeholder="Search…" value={s} onChange={e=>setS(e.target.value)}/>
+ <Card className="overflow-x-auto p-0"><table className="w-full text-sm"><thead><tr className="text-left text-slate-500">{['Name','Email','College','Target role','Interviews','Avg score','Status','Action'].map(h=><th key={h} className="p-3">{h}</th>)}</tr></thead><tbody>{list.map(u=><tr key={u.id} className="border-t dark:border-slate-800"><td className="p-3">{u.name}</td><td className="p-3">{u.email}</td><td className="p-3">{u.college}</td><td className="p-3">{u.targetRole}</td><td className="p-3">{db.interviews.filter(i=>i.c===u.id).length}</td><td className="p-3">{avg(u.id)}</td><td className="p-3 capitalize">{u.status}</td><td className="p-3"><Btn v="ghost" onClick={()=>setD(u)}>{u.status==='active'?'Deactivate':'Activate'}</Btn></td></tr>)}</tbody></table></Card>
+ {d&&<Modal title={`${d.status==='active'?'Deactivate':'Activate'} account?`} onClose={()=>setD(null)}><p className="text-sm mb-4">{d.name} will {d.status==='active'?'no longer be able to log in':'be able to log in again'}.</p><div className="flex justify-end gap-2"><Btn v="ghost" onClick={()=>setD(null)}>Cancel</Btn><Btn v="danger" onClick={()=>{upd(x=>{const u=x.users.find(y=>y.id===d.id);u.status=u.status==='active'?'inactive':'active'});say('Account updated.');setD(null)}}>Confirm</Btn></div></Modal>}</div>;
+}
+function AdminMentors({ctx}){
+ const{db,upd,say}=ctx;
+ return<div><h2 className="text-xl font-bold mb-3">Mentors</h2><Card className="overflow-x-auto p-0"><table className="w-full text-sm"><thead><tr className="text-left text-slate-500">{['Name','Company','Role','Exp.','Rating','Interviews','Status','Action'].map(h=><th key={h} className="p-3">{h}</th>)}</tr></thead><tbody>{db.users.filter(u=>u.role==='mentor').map(u=><tr key={u.id} className="border-t dark:border-slate-800"><td className="p-3">{u.name}</td><td className="p-3">{u.company}</td><td className="p-3">{u.jobTitle}</td><td className="p-3">{u.years}y</td><td className="p-3">{u.rating}</td><td className="p-3">{db.interviews.filter(i=>i.m===u.id).length}</td><td className="p-3 capitalize">{u.status}</td><td className="p-3"><Btn v="ghost" onClick={()=>{upd(x=>{const m=x.users.find(y=>y.id===u.id);m.status=m.status==='active'?'inactive':'active'});say('Mentor status updated.')}}>{u.status==='active'?'Deactivate':'Activate'}</Btn></td></tr>)}</tbody></table></Card></div>;
+}
+function Reports({ctx}){
+ const{db,U}=ctx;const ints=db.interviews;const done=ints.filter(i=>i.status==='Completed').length,canc=ints.filter(i=>i.status==='Cancelled').length;
+ const count=(k)=>{const c={};ints.forEach(i=>c[i[k]]=(c[i[k]]||0)+1);return Object.entries(c).sort((a,b)=>b[1]-a[1])};
+ const types=count('type'),mentors=count('m').map(([k,v])=>[U(k).name,v]);
+ const csv=()=>{const rows=[['ID','Candidate','Mentor','Type','Date','Time','Status'],...ints.map(i=>[i.id,U(i.c).name,U(i.m).name,i.type,i.date,i.time,i.status])];const b=new Blob([rows.map(r=>r.join(',')).join('\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='interview-report.csv';a.click()};
+ return<div><div className="flex justify-between mb-3"><h2 className="text-xl font-bold">Reports</h2><Btn onClick={csv}>Export Report</Btn></div>
+ <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4"><Stat label="Total interviews" value={ints.length}/><Stat label="Completion rate" value={ints.length?Math.round(done/ints.length*100)+'%':'—'}/><Stat label="Cancellation rate" value={ints.length?Math.round(canc/ints.length*100)+'%':'—'}/><Stat label="Top type" value={types[0]?.[0]||'—'}/></div>
+ <div className="grid md:grid-cols-2 gap-3"><Card><h3 className="font-semibold mb-2">By interview type</h3><Bars data={types}/></Card><Card><h3 className="font-semibold mb-2">Most active mentors</h3><Bars data={mentors}/></Card></div></div>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
